@@ -5,9 +5,9 @@ namespace App\Http\Resources;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Storage;
+
 class UserResource extends JsonResource
 {
-      public static $wrap = false;
     /**
      * Transform the resource into an array.
      *
@@ -16,7 +16,7 @@ class UserResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-            'id' => $this->id,
+             'id' => $this->id,
             'avatar_url' => $this->avatar ? Storage::url($this->avatar) : null,
             'name' => $this->name,
             'email' => $this->email,
@@ -25,6 +25,19 @@ class UserResource extends JsonResource
             'is_admin' => (bool) $this->is_admin,
             'last_message' => $this->last_message,
             'last_message_date' => $this->last_message_date,
+        ];
+    }
+
+    public function toConversationArray()
+    {
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            'email' => $this->email,
+            'is_user' => true,
+            'is_group' => false,
+            'created_at' => $this->created_at,
+            'updated_at' => $this->updated_at,
         ];
     }
 }

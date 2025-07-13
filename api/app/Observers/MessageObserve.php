@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Models\Conversation;
 use App\Models\Group;
 use App\Models\Message;
+use Illuminate\Support\Facades\Storage;
 class MessageObserve
 {
      public function deleting(Message $message)

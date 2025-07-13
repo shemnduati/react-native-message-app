@@ -34,8 +34,8 @@ class Conversation extends Model
     {
         $users = User::getUserExceptUser($user);
         $groups = Group::getGroupsForUser($user);
-        return $users->map(function (User $user) {
-            return $user->toConversationArray();
+        return $users->map(function (User $otherUser) use ($user) {
+            return $otherUser->toConversationArray($user);
         })->concat($groups->map(function (Group $group) {
             return $group->toConversationArray();
         }));

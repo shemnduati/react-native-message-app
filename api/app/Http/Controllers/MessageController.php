@@ -10,26 +10,31 @@ use App\Models\Group;
 use App\Models\Message;
 use App\Models\MessageAttachment;
 use App\Models\User;
+use App\Services\PushNotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 
 class MessageController extends Controller
 {
     public function byUser(User $user)
-     {
-        $messages = Message::where('sender_id', auth()->id())
-            ->where('receiver_id', $user->id)
-            ->orWhere('sender_id', $user->id)
-            ->where('receiver_id', auth()->id())
-            ->latest()
-            ->paginate(10);
+    {
+        $messages = Message::where(function ($query) use ($user) {
+            $query->where('sender_id', auth()->id())
+                  ->where('receiver_id', $user->id);
+        })->orWhere(function ($query) use ($user) {
+            $query->where('sender_id', $user->id)
+                  ->where('receiver_id', auth()->id());
+        })
+        ->latest()
+        ->paginate(10);
 
-            return inertia('Home', [
-                'selectedConversation' => $user->toConversationArray(), 
-                'messages' => MessageResource::collection($messages),
-            ]);
-     }
+        return response()->json([
+            'selectedConversation' => $user->toConversationArray(), 
+            'messages' => MessageResource::collection($messages)
+        ]);
+    }
 
      public function byGroup(Group $group)
      {
@@ -37,7 +42,8 @@ class MessageController extends Controller
             ->latest()
             ->paginate(10);
 
-        return inertia('Home', [
+
+        return response([
             'selectedConversation' => $group->toConversationArray(), 
             'messages' => MessageResource::collection($messages),
         ]);
@@ -74,7 +80,7 @@ class MessageController extends Controller
         $data['sender_id'] = auth()->id();
         $receiverId = $data['receiver_id'] ?? null;
         $groupId = $data['group_id'] ?? null;
-        $files = $data['attachmets'] ?? [];
+        $files = $data['attachments'] ?? [];
         
         $message = Message::create($data);
 
@@ -86,7 +92,7 @@ class MessageController extends Controller
                 Storage::makeDirectory($directory);
 
                 $model = [
-                    'messade_id' => $message->id,
+                    'message_id' => $message->id,
                     'name' => $file->getClientOriginalName(),
                     'mime' => $file->getClientMimeType(),
                     'size' => $file->getSize(),
@@ -107,6 +113,21 @@ class MessageController extends Controller
         }
 
         SocketMessage::dispatch($message);
+
+        // Send push notification
+        try {
+            $pushService = new PushNotificationService();
+            
+            if ($receiverId) {
+                $conversation = User::find($receiverId)->toConversationArray(auth()->user());
+                $pushService->sendNewMessageNotification($message, $conversation);
+            } elseif ($groupId) {
+                $conversation = Group::find($groupId)->toConversationArray();
+                $pushService->sendNewMessageNotification($message, $conversation);
+            }
+        } catch (\Exception $e) {
+            \Log::error('Failed to send push notification: ' . $e->getMessage());
+        }
 
         return new MessageResource($message);
 
