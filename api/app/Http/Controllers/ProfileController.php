@@ -9,7 +9,9 @@ use App\Models\Group;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 class ProfileController extends Controller
@@ -162,9 +164,33 @@ class ProfileController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $group->delete();
+        try {
+            // Start a database transaction
+            DB::beginTransaction();
 
-        return response()->json(['message' => 'Group deleted successfully']);
+            // Delete all messages in the group (this will trigger the MessageObserver)
+            $group->messages()->delete();
+
+            // Delete group-user relationships
+            $group->users()->detach();
+
+            // Delete the group itself
+            $group->delete();
+
+            // Commit the transaction
+            DB::commit();
+
+            return response()->json(['message' => 'Group deleted successfully']);
+        } catch (\Exception $e) {
+            // Rollback the transaction on error
+            DB::rollBack();
+            
+            Log::error('Failed to delete group: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to delete group. Please try again.',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     public function uploadAvatar(Request $request)
