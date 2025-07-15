@@ -76,13 +76,39 @@ class MessageController extends Controller
      public function store(StoreMessageRequest $request)
      {
        
+        // Log the raw request data for debugging
+        Log::info('Raw request data:', [
+            'all' => $request->all(),
+            'files' => $request->allFiles(),
+            'has_attachments' => $request->hasFile('attachments'),
+            'message' => $request->input('message'),
+            'receiver_id' => $request->input('receiver_id'),
+            'group_id' => $request->input('group_id'),
+        ]);
+       
         $data = $request->validated();
         $data['sender_id'] = auth()->id();
         $receiverId = $data['receiver_id'] ?? null;
         $groupId = $data['group_id'] ?? null;
         $files = $data['attachments'] ?? [];
         
-        $message = Message::create($data);
+        // Log the incoming data for debugging
+        Log::info('Message store request data:', [
+            'data' => $data,
+            'files_count' => count($files),
+            'has_message' => isset($data['message']),
+            'message_length' => isset($data['message']) ? strlen($data['message']) : 0
+        ]);
+        
+        try {
+            $message = Message::create($data);
+        } catch (\Exception $e) {
+            Log::error('Failed to create message:', [
+                'error' => $e->getMessage(),
+                'data' => $data
+            ]);
+            throw $e;
+        }
 
         $attachments = [];
 
@@ -91,13 +117,30 @@ class MessageController extends Controller
                 $directory = 'attachments/' . Str::random(32);
                 Storage::makeDirectory($directory);
 
+                // Log file details for debugging
+                Log::info('Processing file:', [
+                    'original_name' => $file->getClientOriginalName(),
+                    'mime_type' => $file->getClientMimeType(),
+                    'size' => $file->getSize(),
+                    'extension' => $file->getClientOriginalExtension(),
+                ]);
+
+                // Ensure voice files have correct extension
+                $fileName = $file->getClientOriginalName();
+                if ($file->getClientMimeType() === 'audio/m4a' && !str_ends_with($fileName, '.m4a')) {
+                    $fileName = pathinfo($fileName, PATHINFO_FILENAME) . '.m4a';
+                }
+
                 $model = [
                     'message_id' => $message->id,
-                    'name' => $file->getClientOriginalName(),
+                    'name' => $fileName,
                     'mime' => $file->getClientMimeType(),
                     'size' => $file->getSize(),
-                    'path' => $file->store($directory, 'public'),
+                    'path' => $file->storeAs($directory, $fileName, 'public'),
                 ];
+                
+                Log::info('Created attachment:', $model);
+                
                 $attachment = MessageAttachment::create($model);
                 $attachments[] =$attachment;
             }

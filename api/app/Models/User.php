@@ -48,6 +48,33 @@ class User extends Authenticatable
         ];
     }
 
+    /**
+     * Format message for conversation preview
+     */
+    private static function formatMessagePreview($message, $attachments = null)
+    {
+        // Check if this is a voice message
+        if ($message && preg_match('/^\[VOICE_MESSAGE:(\d+)\]$/', $message, $matches)) {
+            $duration = (int)$matches[1];
+            return "🎤 " . self::formatDuration($duration);
+        }
+        
+        return $message;
+    }
+
+    /**
+     * Format duration in seconds to readable format
+     */
+    private static function formatDuration($seconds)
+    {
+        if ($seconds < 60) {
+            return $seconds . 's';
+        }
+        $minutes = floor($seconds / 60);
+        $remainingSeconds = $seconds % 60;
+        return $minutes . ':' . str_pad($remainingSeconds, 2, '0', STR_PAD_LEFT);
+    }
+
     public function toConversationArray($currentUser = null)
     {
         $lastMessage = null;
@@ -61,7 +88,7 @@ class User extends Authenticatable
                   ->where('receiver_id', $this->id);
             })->orderBy('created_at', 'desc')->first();
             if ($lastMsg) {
-                $lastMessage = $lastMsg->message;
+                $lastMessage = self::formatMessagePreview($lastMsg->message, $lastMsg->attachments);
                 $lastMessageDate = $lastMsg->created_at;
             }
         }

@@ -35,6 +35,33 @@ class Group extends Model
         return $this->belongsTo(Message::class, 'last_message_id');
     }
 
+    /**
+     * Format message for conversation preview
+     */
+    private static function formatMessagePreview($message, $attachments = null)
+    {
+        // Check if this is a voice message
+        if ($message && preg_match('/^\[VOICE_MESSAGE:(\d+)\]$/', $message, $matches)) {
+            $duration = (int)$matches[1];
+            return "🎤 " . self::formatDuration($duration);
+        }
+        
+        return $message;
+    }
+
+    /**
+     * Format duration in seconds to readable format
+     */
+    private static function formatDuration($seconds)
+    {
+        if ($seconds < 60) {
+            return $seconds . 's';
+        }
+        $minutes = floor($seconds / 60);
+        $remainingSeconds = $seconds % 60;
+        return $minutes . ':' . str_pad($remainingSeconds, 2, '0', STR_PAD_LEFT);
+    }
+
     public static function getGroupsForUser(User $user)
     {
         $query  = self::select([
@@ -53,7 +80,16 @@ class Group extends Model
             ->orderBy('messages.created_at', 'desc')
             ->orderBy('groups.name');
 
-            return $query->get();
+        $groups = $query->get();
+        
+        // Format the last_message for each group
+        foreach ($groups as $group) {
+            if ($group->last_message) {
+                $group->last_message = self::formatMessagePreview($group->last_message);
+            }
+        }
+
+        return $groups;
     } 
 
 
@@ -69,7 +105,7 @@ class Group extends Model
             'owner_id' => $this->owner_id,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
-            'last_message' => $this->last_message,
+            'last_message' => $this->last_message ? self::formatMessagePreview($this->last_message) : $this->last_message,
             'last_message_date' => $this->last_message_date,
             'users' => $this->users()->get()->map(function($user) {
                 return method_exists($user, 'toConversationArray') ? $user->toConversationArray() : $user->toArray();
