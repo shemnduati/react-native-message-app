@@ -15,6 +15,9 @@ Route::post('/login', [ProfileController::class, 'login']);
 Route::post('/register', [ProfileController::class, 'register']);
 Route::post('/logout', [ProfileController::class, 'logout'])->middleware('auth:sanctum');
 
+// Public test route for push notifications
+Route::post('/test-push', [ProfileController::class, 'testPushNotification']);
+
 // Protected routes
 Route::middleware('auth:sanctum')->group(function () {
     // User profile

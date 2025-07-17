@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use App\Services\PushNotificationService;
 
 class ProfileController extends Controller
 {
@@ -209,5 +210,31 @@ class ProfileController extends Controller
             'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null,
             'message' => 'Avatar updated successfully',
         ]);
+    }
+
+    public function testPushNotification(Request $request)
+    {
+        $request->validate([
+            'fcm_token' => 'required|string',
+            'title' => 'required|string',
+            'body' => 'required|string',
+            'data' => 'array',
+        ]);
+
+        $fcmToken = $request->input('fcm_token');
+        $title = $request->input('title');
+        $body = $request->input('body');
+        $data = $request->input('data', []);
+
+        $service = new PushNotificationService();
+        
+        // Check if it's an Expo push token (starts with ExponentPushToken)
+        if (strpos($fcmToken, 'ExponentPushToken') === 0) {
+            $result = $service->sendExpoNotification($fcmToken, $title, $body, $data);
+        } else {
+            $result = $service->sendNotification($fcmToken, $title, $body, $data);
+        }
+
+        return response()->json($result);
     }
 }

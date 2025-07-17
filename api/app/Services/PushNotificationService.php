@@ -2,228 +2,246 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-
 class PushNotificationService
 {
-    private $fcmUrl = 'https://fcm.googleapis.com/fcm/send';
-    private $serverKey;
+    private $projectId;
+    private $serviceAccountPath;
 
     public function __construct()
     {
-        $this->serverKey = config('services.fcm.server_key');
+        $this->projectId = env('FIREBASE_PROJECT_ID');
+        $this->serviceAccountPath = base_path(env('FIREBASE_SERVICE_ACCOUNT_PATH', 'firebase-service-account.json'));
     }
 
-    /**
-     * Send push notification to a specific user
-     */
-    public function sendToUser($userId, $title, $body, $data = [])
+    public function sendNotification($fcmToken, $title, $body, $data = [])
     {
-        // Get user's FCM token from database
-        $user = \App\Models\User::find($userId);
-        if (!$user || !$user->fcm_token) {
-            Log::warning("No FCM token found for user: {$userId}");
-            return false;
-        }
-
-        return $this->sendToToken($user->fcm_token, $title, $body, $data);
-    }
-
-    /**
-     * Send push notification to multiple users
-     */
-    public function sendToUsers($userIds, $title, $body, $data = [])
-    {
-        $tokens = \App\Models\User::whereIn('id', $userIds)
-            ->whereNotNull('fcm_token')
-            ->pluck('fcm_token')
-            ->toArray();
-
-        if (empty($tokens)) {
-            Log::warning("No FCM tokens found for users: " . implode(', ', $userIds));
-            return false;
-        }
-
-        return $this->sendToTokens($tokens, $title, $body, $data);
-    }
-
-    /**
-     * Send push notification to a specific FCM token
-     */
-    public function sendToToken($token, $title, $body, $data = [])
-    {
-        $payload = [
-            'to' => $token,
-            'notification' => [
-                'title' => $title,
-                'body' => $body,
-                'sound' => 'default',
-                'badge' => 1,
-            ],
-            'data' => $data,
-            'priority' => 'high',
-        ];
-
-        return $this->sendRequest($payload);
-    }
-
-    /**
-     * Send push notification to multiple FCM tokens
-     */
-    public function sendToTokens($tokens, $title, $body, $data = [])
-    {
-        $payload = [
-            'registration_ids' => $tokens,
-            'notification' => [
-                'title' => $title,
-                'body' => $body,
-                'sound' => 'default',
-                'badge' => 1,
-            ],
-            'data' => $data,
-            'priority' => 'high',
-        ];
-
-        return $this->sendRequest($payload);
-    }
-
-    /**
-     * Send HTTP request to FCM
-     */
-    private function sendRequest($payload)
-    {
-        if (!$this->serverKey) {
-            Log::error('FCM server key not configured');
-            return false;
-        }
-
         try {
-            $response = Http::withHeaders([
-                'Authorization' => 'key=' . $this->serverKey,
-                'Content-Type' => 'application/json',
-            ])->post($this->fcmUrl, $payload);
+            // Get access token
+            $accessToken = $this->getAccessToken();
 
-            if ($response->successful()) {
-                Log::info('Push notification sent successfully', [
-                    'payload' => $payload,
-                    'response' => $response->json()
-                ]);
-                return true;
-            } else {
-                Log::error('Failed to send push notification', [
-                    'payload' => $payload,
-                    'response' => $response->body()
-                ]);
-                return false;
-            }
+            $message = [
+                'message' => [
+                    'token' => $fcmToken,
+                    'notification' => [
+                        'title' => $title,
+                        'body' => $body,
+                    ],
+                    'data' => $data,
+                    'android' => [
+                        'priority' => 'high',
+                    ],
+                    'apns' => [
+                        'headers' => [
+                            'apns-priority' => '10',
+                        ],
+                    ],
+                ],
+            ];
+
+            $url = "https://fcm.googleapis.com/v1/projects/{$this->projectId}/messages:send";
+
+            $headers = [
+                'Authorization: Bearer ' . $accessToken,
+                'Content-Type: application/json',
+            ];
+
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($message));
+
+            $result = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            return [
+                'success' => $httpCode === 200,
+                'response' => $result,
+                'http_code' => $httpCode,
+            ];
         } catch (\Exception $e) {
-            Log::error('Exception sending push notification: ' . $e->getMessage());
-            return false;
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+            ];
         }
     }
 
-    /**
-     * Send new message notification
-     */
-    public function sendNewMessageNotification($message, $conversation)
+    private function getAccessToken()
     {
-        $title = $conversation['is_group'] ? $conversation['name'] : $conversation['name'];
-        $body = $message->message ?: 'New message';
+        if (!file_exists($this->serviceAccountPath)) {
+            throw new \Exception('Firebase service account file not found: ' . $this->serviceAccountPath);
+        }
+
+        $serviceAccount = json_decode(file_get_contents($this->serviceAccountPath), true);
         
-        $data = [
-            'type' => 'new_message',
-            'conversation_id' => $conversation['id'],
-            'message_id' => $message->id,
-            'is_group' => $conversation['is_group'] ? '1' : '0',
-            'sender_name' => $message->sender->name,
+        $credentials = [
+            'type' => 'service_account',
+            'project_id' => $serviceAccount['project_id'],
+            'private_key_id' => $serviceAccount['private_key_id'],
+            'private_key' => $serviceAccount['private_key'],
+            'client_email' => $serviceAccount['client_email'],
+            'client_id' => $serviceAccount['client_id'],
+            'auth_uri' => 'https://accounts.google.com/o/oauth2/auth',
+            'token_uri' => 'https://oauth2.googleapis.com/token',
+            'auth_provider_x509_cert_url' => 'https://www.googleapis.com/oauth2/v1/certs',
+            'client_x509_cert_url' => $serviceAccount['client_x509_cert_url'],
         ];
 
-        if ($conversation['is_group']) {
-            // Send to all group members except sender
-            $group = \App\Models\Group::find($conversation['id']);
-            $userIds = $group->users->where('id', '!=', $message->sender_id)->pluck('id')->toArray();
-            return $this->sendToUsersWithBadge($userIds, $title, $body, $data);
-        } else {
-            // Send to the receiver
-            $receiverId = $message->sender_id == $conversation['id'] ? $message->receiver_id : $message->sender_id;
-            return $this->sendToUserWithBadge($receiverId, $title, $body, $data);
+        $jwt = $this->createJWT($credentials);
+        
+        $tokenUrl = 'https://oauth2.googleapis.com/token';
+        $postData = [
+            'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            'assertion' => $jwt,
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $tokenUrl);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $tokenData = json_decode($response, true);
+        
+        if (!isset($tokenData['access_token'])) {
+            throw new \Exception('Failed to get access token: ' . $response);
         }
+        
+        return $tokenData['access_token'];
     }
 
-    /**
-     * Send push notification to user with badge count
-     */
-    public function sendToUserWithBadge($userId, $title, $body, $data = [])
+    private function createJWT($credentials)
     {
-        $user = \App\Models\User::find($userId);
-        if (!$user || !$user->fcm_token) {
-            \Log::warning("No FCM token found for user: {$userId}");
-            return false;
-        }
+        $header = [
+            'alg' => 'RS256',
+            'typ' => 'JWT',
+        ];
 
-        // Get current unread count for this user
-        $unreadCount = $this->getUserUnreadCount($userId);
-
-        return $this->sendToTokenWithBadge($user->fcm_token, $title, $body, $data, $unreadCount + 1);
-    }
-
-    /**
-     * Send push notification to multiple users with badge count
-     */
-    public function sendToUsersWithBadge($userIds, $title, $body, $data = [])
-    {
-        $tokens = \App\Models\User::whereIn('id', $userIds)
-            ->whereNotNull('fcm_token')
-            ->get(['id', 'fcm_token']);
-
-        if ($tokens->isEmpty()) {
-            \Log::warning("No FCM tokens found for users: " . implode(', ', $userIds));
-            return false;
-        }
-
-        // Send individual notifications with proper badge counts
-        foreach ($tokens as $user) {
-            $unreadCount = $this->getUserUnreadCount($user->id);
-            $this->sendToTokenWithBadge($user->fcm_token, $title, $body, $data, $unreadCount + 1);
-        }
-
-        return true;
-    }
-
-    /**
-     * Send push notification to token with badge count
-     */
-    public function sendToTokenWithBadge($token, $title, $body, $data = [], $badgeCount = 1)
-    {
+        $now = time();
         $payload = [
-            'to' => $token,
+            'iss' => $credentials['client_email'],
+            'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
+            'aud' => $credentials['token_uri'],
+            'exp' => $now + 3600,
+            'iat' => $now,
+        ];
+
+        $headerEncoded = $this->base64UrlEncode(json_encode($header));
+        $payloadEncoded = $this->base64UrlEncode(json_encode($payload));
+
+        $signature = '';
+        openssl_sign(
+            $headerEncoded . '.' . $payloadEncoded,
+            $signature,
+            $credentials['private_key'],
+            OPENSSL_ALGO_SHA256
+        );
+
+        $signatureEncoded = $this->base64UrlEncode($signature);
+
+        return $headerEncoded . '.' . $payloadEncoded . '.' . $signatureEncoded;
+    }
+
+    private function base64UrlEncode($data)
+    {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+    }
+
+    // Legacy method for backward compatibility (if you still have the old server key)
+    public function sendNotificationLegacy($fcmToken, $title, $body, $data = [])
+    {
+        $serverKey = env('FCM_SERVER_KEY');
+        
+        if (!$serverKey) {
+            return [
+                'success' => false,
+                'error' => 'FCM Server Key not configured,',
+            ];
+        }
+
+        $fields = [
+            'to' => $fcmToken,
             'notification' => [
                 'title' => $title,
                 'body' => $body,
-                'sound' => 'default',
-                'badge' => $badgeCount,
             ],
-            'data' => array_merge($data, [
-                'badge' => (string)$badgeCount,
-            ]),
-            'priority' => 'high',
+            'data' => $data
         ];
 
-        return $this->sendRequest($payload);
+        $headers = [
+            'Authorization: key=' . $serverKey,
+            'Content-Type: application/json'
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, 'https://fcm.googleapis.com/fcm/send');
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($fields));
+        
+        $result = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        return [
+            'success' => $httpCode === 200,
+            'response' => $result,
+            'http_code' => $httpCode,
+        ];
     }
 
-    /**
-     * Get user's unread message count
-     */
-    private function getUserUnreadCount($userId)
+    // Method for sending notifications to Expo push tokens
+    public function sendExpoNotification($expoPushToken, $title, $body, $data = [])
     {
-        // This is a simplified version - you might want to implement a more sophisticated counting system
-        $count = \App\Models\Message::where(function($query) use ($userId) {
-            $query->where('receiver_id', $userId)
-                  ->where('read_at', null);
-        })->count();
+        try {
+            $message = [
+                'to' => $expoPushToken,
+                'title' => $title,
+                'body' => $body,
+                'data' => $data,
+                'sound' => 'default',
+                'badge' => 1,
+            ];
 
-        return $count;
+            $url = 'https://exp.host/--/api/v2/push/send';
+
+            $headers = [
+                'Content-Type: application/json',
+                'Accept: application/json',
+            ];
+
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($message));
+
+            $result = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            return [
+                'success' => $httpCode === 200,
+                'response' => $result,
+                'http_code' => $httpCode,
+            ];
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+            ];
+        }
     }
 } 
