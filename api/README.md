@@ -59,3 +59,101 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+# React Native Message App - Laravel API
+
+This is the Laravel API backend for the React Native Message App.
+
+## Setup
+
+### Prerequisites
+- PHP 8.1+
+- Composer
+- MySQL/PostgreSQL
+- Node.js (for frontend assets)
+
+### Installation
+
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   composer install
+   ```
+
+3. Copy environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+4. Configure your database in `.env`
+
+5. Run migrations:
+   ```bash
+   php artisan migrate
+   ```
+
+6. Generate application key:
+   ```bash
+   php artisan key:generate
+   ```
+
+### Firebase Setup
+
+This application uses Firebase for push notifications. To set up Firebase:
+
+1. Go to [Firebase Console](https://console.firebase.google.com/)
+2. Create a new project or select an existing one
+3. Go to Project Settings > Service Accounts
+4. Click "Generate new private key"
+5. Download the JSON file
+6. Rename it to `firebase-service-account.json` and place it in the `api/` directory
+
+**Important**: The `firebase-service-account.json` file contains sensitive credentials and is not committed to the repository. See `firebase-service-account.json.example` for the expected format.
+
+### Running the Application
+
+```bash
+php artisan serve
+```
+
+The API will be available at `http://localhost:8000`
+
+## Features
+
+- User authentication with Laravel Sanctum
+- Real-time messaging with WebSockets
+- Push notifications via Firebase
+- File and image uploads
+- Voice message support
+- Group chat functionality
+- Message replies and deletion
+
+## API Endpoints
+
+### Authentication
+- `POST /api/login` - User login
+- `POST /api/register` - User registration
+- `POST /api/logout` - User logout
+
+### Messages
+- `GET /api/messages/user/{id}` - Get messages with a user
+- `GET /api/messages/group/{id}` - Get messages in a group
+- `POST /api/messages` - Send a message
+- `DELETE /api/messages/{id}` - Delete a message
+
+### Conversations
+- `GET /api/conversations` - Get user conversations
+
+### Groups
+- `GET /api/groups` - Get user groups
+- `POST /api/groups` - Create a group
+- `PUT /api/groups/{id}` - Update a group
+- `DELETE /api/groups/{id}` - Delete a group
+
+## Security
+
+If you discover a security vulnerability, please send an e-mail to the maintainers. All security vulnerabilities will be promptly addressed.
+
+## License
+
+This project is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
