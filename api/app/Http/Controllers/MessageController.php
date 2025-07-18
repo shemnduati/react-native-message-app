@@ -84,12 +84,14 @@ class MessageController extends Controller
             'message' => $request->input('message'),
             'receiver_id' => $request->input('receiver_id'),
             'group_id' => $request->input('group_id'),
+            'reply_to_id' => $request->input('reply_to_id'),
         ]);
        
         $data = $request->validated();
         $data['sender_id'] = auth()->id();
         $receiverId = $data['receiver_id'] ?? null;
         $groupId = $data['group_id'] ?? null;
+        $replyToId = $data['reply_to_id'] ?? null;
         $files = $data['attachments'] ?? [];
         
         // Log the incoming data for debugging
@@ -97,7 +99,8 @@ class MessageController extends Controller
             'data' => $data,
             'files_count' => count($files),
             'has_message' => isset($data['message']),
-            'message_length' => isset($data['message']) ? strlen($data['message']) : 0
+            'message_length' => isset($data['message']) ? strlen($data['message']) : 0,
+            'reply_to_id' => $replyToId
         ]);
         
         try {
@@ -178,35 +181,50 @@ class MessageController extends Controller
 
      public function destroy(Message $message)
      {
-    
         if ($message->sender_id != auth()->id()){
             return response()->json(['message' => 'Forbidden'],403);
         }
 
-        $group = null;
-        $conversation = null;
+        $lastMessage = null;
 
-        // Check if the message is the group messagew
+        // Handle foreign key constraints by updating references before deletion
         if ($message->group_id){
+            // Check if this message is the last message in the group
             $group = Group::where('last_message_id', $message->id)->first();
-        }else {
+            if ($group) {
+                // Find the previous message in the group
+                $previousMessage = Message::where('group_id', $message->group_id)
+                    ->where('id', '!=', $message->id)
+                    ->latest()
+                    ->first();
+                
+                // Update the group's last_message_id
+                $group->update(['last_message_id' => $previousMessage ? $previousMessage->id : null]);
+                $lastMessage = $previousMessage;
+            }
+        } else {
+            // Check if this message is the last message in the conversation
             $conversation = Conversation::where('last_message_id', $message->id)->first();
+            if ($conversation) {
+                // Find the previous message in the conversation
+                $previousMessage = Message::where(function ($query) use ($message) {
+                    $query->where('sender_id', $message->sender_id)
+                        ->where('receiver_id', $message->receiver_id)
+                        ->orWhere('sender_id', $message->receiver_id)
+                        ->where('receiver_id', $message->sender_id);
+                })
+                ->where('id', '!=', $message->id)
+                ->latest()
+                ->first();
+                
+                // Update the conversation's last_message_id
+                $conversation->update(['last_message_id' => $previousMessage ? $previousMessage->id : null]);
+                $lastMessage = $previousMessage;
+            }
         }
 
-       
+        // Now delete the message (this will cascade delete replies due to foreign key constraint)
         $message->delete();
- 
-        if($group) {
-            // Repopulate group with latest database data
-            $group = Group::find($group->id);
-            $lastMessage = $group->lastMessage;
-        }else if($conversation) {
-            // Repopulate conversation with latest database data
-            $conversation = Conversation::find($conversation->id);
-            $lastMessage = $conversation->lastMessage;
-        }
-
-    
         
         return response()->json(['message' => $lastMessage ? new MessageResource($lastMessage) : null]);
      }

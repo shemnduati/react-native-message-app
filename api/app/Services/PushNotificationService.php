@@ -2,6 +2,10 @@
 
 namespace App\Services;
 
+use App\Models\User;
+use App\Models\Group;
+use Illuminate\Support\Facades\Log;
+
 class PushNotificationService
 {
     private $projectId;
@@ -241,6 +245,119 @@ class PushNotificationService
             return [
                 'success' => false,
                 'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    // Method for sending new message notifications
+    public function sendNewMessageNotification($message, $conversation)
+    {
+        try {
+            $sender = $message->sender;
+            $receiver = null;
+            $group = null;
+
+            // Determine the receiver and conversation type
+            if ($message->receiver_id) {
+                $receiver = User::find($message->receiver_id);
+            } elseif ($message->group_id) {
+                $group = Group::find($message->group_id);
+            }
+
+            // Prepare notification data
+            $title = $sender->name;
+            $body = $message->message ?: 'Sent an attachment';
+            
+            // Add message type indicator
+            if ($message->attachments && count($message->attachments) > 0) {
+                $attachmentTypes = collect($message->attachments)->pluck('mime')->unique();
+                if ($attachmentTypes->contains('audio/m4a') || $attachmentTypes->contains('audio/mp3')) {
+                    $body = 'Sent a voice message';
+                } elseif ($attachmentTypes->contains('image/')) {
+                    $body = 'Sent a photo';
+                } else {
+                    $body = 'Sent an attachment';
+                }
+            }
+
+            $data = [
+                'type' => 'new_message',
+                'message_id' => $message->id,
+                'sender_id' => $sender->id,
+                'sender_name' => $sender->name,
+                'conversation_id' => $conversation['id'] ?? null,
+                'conversation_type' => $message->group_id ? 'group' : 'user',
+                'group_id' => $message->group_id,
+                'receiver_id' => $message->receiver_id,
+            ];
+
+            // Send notification to receiver (for direct messages)
+            if ($receiver && $receiver->fcm_token && $receiver->id !== $sender->id) {
+                Log::info('Sending notification to receiver', [
+                    'receiver_id' => $receiver->id,
+                    'receiver_name' => $receiver->name,
+                    'token_type' => strpos($receiver->fcm_token, 'ExponentPushToken') === 0 ? 'expo' : 'fcm',
+                    'token_preview' => substr($receiver->fcm_token, 0, 20) . '...',
+                    'title' => $title,
+                    'body' => $body
+                ]);
+                
+                // Check if it's an Expo push token (starts with ExponentPushToken)
+                if (strpos($receiver->fcm_token, 'ExponentPushToken') === 0) {
+                    $result = $this->sendExpoNotification($receiver->fcm_token, $title, $body, $data);
+                    Log::info('Expo notification result', $result);
+                } else {
+                    $result = $this->sendNotification($receiver->fcm_token, $title, $body, $data);
+                    Log::info('FCM notification result', $result);
+                }
+            }
+
+            // Send notification to group members (for group messages)
+            if ($group) {
+                $groupMembers = $group->members()->where('user_id', '!=', $sender->id)->get();
+                Log::info('Sending group notifications', [
+                    'group_id' => $group->id,
+                    'group_name' => $group->name,
+                    'members_count' => $groupMembers->count(),
+                    'sender_id' => $sender->id
+                ]);
+                
+                foreach ($groupMembers as $member) {
+                    if ($member->user->fcm_token) {
+                        Log::info('Sending notification to group member', [
+                            'member_id' => $member->user->id,
+                            'member_name' => $member->user->name,
+                            'token_type' => strpos($member->user->fcm_token, 'ExponentPushToken') === 0 ? 'expo' : 'fcm',
+                            'token_preview' => substr($member->user->fcm_token, 0, 20) . '...'
+                        ]);
+                        
+                        // Check if it's an Expo push token (starts with ExponentPushToken)
+                        if (strpos($member->user->fcm_token, 'ExponentPushToken') === 0) {
+                            $result = $this->sendExpoNotification($member->user->fcm_token, $title, $body, $data);
+                            Log::info('Expo group notification result', $result);
+                        } else {
+                            $result = $this->sendNotification($member->user->fcm_token, $title, $body, $data);
+                            Log::info('FCM group notification result', $result);
+                        }
+                    } else {
+                        Log::info('Group member has no FCM token', [
+                            'member_id' => $member->user->id,
+                            'member_name' => $member->user->name
+                        ]);
+                    }
+                }
+            }
+
+            return [
+                'success' => true,
+                'message' => 'Notification sent successfully'
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Failed to send new message notification: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
             ];
         }
     }

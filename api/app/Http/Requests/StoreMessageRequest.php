@@ -26,6 +26,7 @@ class StoreMessageRequest extends FormRequest
             'message' => 'nullable|string|max:10000', // Increased max length for JSON voice data
             'group_id' => 'required_without:receiver_id|nullable|exists:groups,id',
             'receiver_id' =>  'required_without:group_id|nullable|exists:users,id',
+            'reply_to_id' => 'nullable|exists:messages,id',
             'attachments' => 'nullable|array|max:10',
             'attachments.*' => 'file|max:1024000',
         ];

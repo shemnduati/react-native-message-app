@@ -23,6 +23,15 @@ class MessageResource extends JsonResource
             'sender' => new UserResource($this->sender),
             'group_id' => $this->group_id,
             'attachments' => MessageAttachmentResource::collection($this->attachments),
+            'reply_to_id' => $this->reply_to_id,
+            'reply_to' => $this->when($this->replyTo, function () {
+                return [
+                    'id' => $this->replyTo->id,
+                    'message' => $this->replyTo->message,
+                    'sender' => new UserResource($this->replyTo->sender),
+                    'attachments' => MessageAttachmentResource::collection($this->replyTo->attachments),
+                ];
+            }),
             'created_at' =>$this->created_at,
             'updated_at' => $this->updated_at,
         ];
