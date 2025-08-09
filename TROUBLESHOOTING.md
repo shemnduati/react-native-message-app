@@ -31,8 +31,9 @@ The API URL depends on how you're running the React Native app:
 - This should work automatically
 
 #### For Android Emulator:
-- Use: `http://10.0.2.2:8000/api`
-- This is the special IP that Android emulator uses to access localhost
+- Use: `http://10.0.2.2:8000/api` (if working)
+- Or use: `http://YOUR_COMPUTER_IP:8000/api` (recommended)
+- Your computer's IP: `192.168.100.16`
 
 #### For Physical Device:
 - Use: `http://YOUR_COMPUTER_IP:8000/api`
@@ -50,7 +51,7 @@ Edit `app/services/api.ts` and update the API_BASE_URL:
 const API_BASE_URL = __DEV__ 
   ? Platform.OS === 'ios' 
     ? 'http://localhost:8000/api'
-    : 'http://10.0.2.2:8000/api'  // or 'http://YOUR_COMPUTER_IP:8000/api'
+    : 'http://192.168.100.16:8000/api'  // Your computer's IP
   : 'https://your-production-api.com/api';
 ```
 
@@ -221,4 +222,52 @@ keyExtractor={(item, index) => {
 
 ---
 
-**Let me know what you find in the logs! Once we see the actual keys and IDs, we can fix this for good.** 
+**Let me know what you find in the logs! Once we see the actual keys and IDs, we can fix this for good.**
+
+---
+
+## API Endpoint Testing Results
+
+Based on your test results, here's what we found:
+
+### ✅ Working Endpoints:
+- `GET /api/user` - Returns 200 (User profile retrieval)
+
+### ❌ Issues Found:
+- `POST /api/user` - Returns 405 (Method Not Allowed)
+  - **Solution**: Use `PUT /api/user` for user updates, not POST
+- `POST /api/user/avatar` with empty FormData - Returns 500 (Internal Server Error)
+  - **Solution**: This endpoint expects `POST` with a file upload, not empty FormData
+  - **Fixed**: Added proper mock file upload test
+
+### 🔧 Fixed API Test Component:
+The `ApiTest.tsx` component has been updated with:
+1. **Correct HTTP methods** for each endpoint
+2. **Proper authentication** using SecureStore tokens
+3. **Better error handling** with detailed status codes
+4. **Avatar endpoint documentation** showing correct usage
+
+### 📋 Available API Endpoints:
+```
+GET    /api/user              - Get user profile
+PUT    /api/user              - Update user profile  
+POST   /api/user/avatar       - Upload avatar (requires file)
+POST   /api/user/fcm-token    - Register FCM token
+GET    /api/conversations     - Get user conversations
+GET    /api/groups            - Get user groups
+POST   /api/groups            - Create new group
+PUT    /api/groups/{id}       - Update group
+DELETE /api/groups/{id}       - Delete group
+POST   /api/messages          - Send message
+GET    /api/messages/user/{id} - Get messages with user
+GET    /api/messages/group/{id} - Get group messages
+DELETE /api/messages/{id}     - Delete message
+```
+
+### 🧪 How to Test:
+1. **Login first** to get an auth token
+2. **Use the updated ApiTest component** in your app
+3. **Test each endpoint** with the correct HTTP method
+4. **Check the console logs** for detailed results
+
+The API connection is working correctly - the issues were just using the wrong HTTP methods for the endpoints! 

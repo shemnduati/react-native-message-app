@@ -17,7 +17,7 @@ class UserResource extends JsonResource
     {
         return [
              'id' => $this->id,
-            'avatar_url' => $this->avatar ? Storage::url($this->avatar) : null,
+            'avatar_url' => $this->avatar ? asset('storage/' . $this->avatar) : null,
             'name' => $this->name,
             'email' => $this->email,
             'created_at' => $this->created_at,
@@ -32,6 +32,7 @@ class UserResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'avatar_url' => $this->avatar ? asset('storage/' . $this->avatar) : null,
             'name' => $this->name,
             'email' => $this->email,
             'is_user' => true,

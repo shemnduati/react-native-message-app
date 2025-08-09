@@ -114,6 +114,26 @@ class ProfileController extends Controller
         return response()->json($limitedConversations);
     }
 
+    public function users(Request $request)
+    {
+        $user = $request->user();
+        $users = User::getUserExceptUser($user);
+        
+        // Transform users to include avatar_url
+        $usersWithAvatars = $users->map(function($user) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null,
+                'created_at' => $user->created_at,
+                'updated_at' => $user->updated_at,
+            ];
+        });
+        
+        return response()->json($usersWithAvatars);
+    }
+
     public function groups(Request $request)
     {
         $user = $request->user();
@@ -196,20 +216,72 @@ class ProfileController extends Controller
 
     public function uploadAvatar(Request $request)
     {
-        $request->validate([
-            'avatar' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
-        ]);
+        try {
+            // Debug: Log what we're receiving
+            Log::info('Avatar upload request received', [
+                'has_file' => $request->hasFile('avatar'),
+                'all_files' => $request->allFiles(),
+                'content_type' => $request->header('Content-Type'),
+                'method' => $request->method(),
+                'url' => $request->url(),
+            ]);
+            
+            $request->validate([
+                'avatar' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+            ]);
 
-        $user = $request->user();
-        $file = $request->file('avatar');
-        $path = $file->store('avatars', 'public');
-        $user->avatar = $path;
-        $user->save();
+            $user = $request->user();
+            $file = $request->file('avatar');
+            
+            if (!$file) {
+                Log::error('No file found in request');
+                return response()->json(['error' => 'No file uploaded'], 400);
+            }
 
-        return response()->json([
-            'avatar_url' => $user->avatar ? asset('storage/' . $user->avatar) : null,
-            'message' => 'Avatar updated successfully',
-        ]);
+            // Debug: Log file details
+            Log::info('File found in request', [
+                'original_name' => $file->getClientOriginalName(),
+                'mime_type' => $file->getMimeType(),
+                'size' => $file->getSize(),
+            ]);
+
+            // Store the file in the public disk
+            Log::info('Attempting to store file...');
+            $path = $file->store('avatars', 'public');
+            Log::info('File stored at path: ' . $path);
+            
+            if (!$path) {
+                Log::error('Failed to store file');
+                return response()->json(['error' => 'Failed to store file'], 500);
+            }
+
+            Log::info('Updating user avatar in database...');
+            $user->avatar = $path;
+            $user->save();
+            Log::info('User avatar updated successfully');
+
+            $avatarUrl = $user->avatar ? asset('storage/' . $user->avatar) : null;
+            Log::info('Avatar URL generated: ' . $avatarUrl);
+            
+            // Return minimal response to avoid timeout
+            $responseData = [
+                'success' => true,
+                'avatar_url' => $avatarUrl,
+                'message' => 'Avatar updated successfully',
+            ];
+            
+            Log::info('Response data prepared:', $responseData);
+            
+            $response = response()->json($responseData, 200);
+            
+            Log::info('Avatar upload completed successfully, sending response...');
+            return $response;
+        } catch (\Exception $e) {
+            Log::error('Avatar upload failed: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Avatar upload failed: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     public function testPushNotification(Request $request)

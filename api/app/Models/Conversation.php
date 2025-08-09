@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Support\Facades\DB;
 
 class Conversation extends Model
 {
@@ -32,9 +33,25 @@ class Conversation extends Model
 
     public static function getConversationsForSidebar(User $user)
     {
-        $users = User::getUserExceptUser($user);
+        // Get users who have conversations (messages) with the current user
+        $usersWithConversations = User::where('id', '!=', $user->id)
+            ->where(function($query) use ($user) {
+                $query->whereExists(function($subQuery) use ($user) {
+                    $subQuery->select(DB::raw(1))
+                        ->from('messages')
+                        ->where(function($q) use ($user) {
+                            $q->where('sender_id', DB::raw('users.id'))
+                              ->where('receiver_id', $user->id);
+                        })->orWhere(function($q) use ($user) {
+                            $q->where('sender_id', $user->id)
+                              ->where('receiver_id', DB::raw('users.id'));
+                        });
+                });
+            })
+            ->get();
+        
         $groups = Group::getGroupsForUser($user);
-        return $users->map(function (User $otherUser) use ($user) {
+        return $usersWithConversations->map(function (User $otherUser) use ($user) {
             return $otherUser->toConversationArray($user);
         })->concat($groups->map(function (Group $group) {
             return $group->toConversationArray();

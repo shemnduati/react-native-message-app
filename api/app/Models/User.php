@@ -94,6 +94,7 @@ class User extends Authenticatable
         }
         return [
             'id' => $this->id,
+            'avatar_url' => $this->avatar ? asset('storage/' . $this->avatar) : null,
             'name' => $this->name,
             'email' => $this->email,
             'is_user' => true,
@@ -105,10 +106,21 @@ class User extends Authenticatable
         ];
     }
 
+    public function hasConversationWith($currentUser)
+    {
+        return \App\Models\Message::where(function($q) use ($currentUser) {
+            $q->where('sender_id', $this->id)
+              ->where('receiver_id', $currentUser->id);
+        })->orWhere(function($q) use ($currentUser) {
+            $q->where('sender_id', $currentUser->id)
+              ->where('receiver_id', $this->id);
+        })->exists();
+    }
+
     public static function getUserExceptUser(User $user)
     {
         return self::where('id', '!=', $user->id)
-                   ->select(['id', 'name', 'email', 'created_at', 'updated_at'])
+                   ->select(['id', 'name', 'email', 'avatar', 'created_at', 'updated_at'])
                    ->get();
     }
 }
